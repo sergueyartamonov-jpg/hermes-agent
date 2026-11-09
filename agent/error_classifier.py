@@ -1074,7 +1074,10 @@ def _status_403(c: _Ctx) -> Verdict:
     # A WAF/CDN in front of the provider answered, not the provider: the credential never
     # reached it, so key guidance and credential rotation are wrong (#53099, #70566). Gated on
     # 403 and on established block/challenge markers; any other 403 stays auth.
-    if any(p in c.msg for p in _UPSTREAM_BLOCKED_PATTERNS):
+    openai_edge_page = all(fragment in c.msg for fragment in (
+        "<html", "unable to load site", "if you are using a vpn, try turning it off.",
+    ))
+    if openai_edge_page or any(p in c.msg for p in _UPSTREAM_BLOCKED_PATTERNS):
         return _V_UPSTREAM_BLOCKED
     return _V_AUTH_FALLBACK
 

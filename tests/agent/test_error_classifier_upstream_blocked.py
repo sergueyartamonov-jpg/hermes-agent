@@ -32,3 +32,26 @@ def test_403_waf_block_is_upstream_blocked_not_auth(body):
 ])
 def test_generic_403_and_all_401_keep_auth(body, status, reason):
     assert classify_api_error(_APIError(body, status), provider="openai-api").reason == reason
+
+
+_OPENAI_EDGE_PAGE = """<html><body><div class="message"><p>Unable to load site</p></div>
+<span class="explanation">Please try again later. If you are using a VPN, try turning it off.</span>
+<span class="explanation">[IP: 192.0.2.1 | Ray ID: test-ray]</span></body></html>"""
+
+
+def test_codex_unable_to_load_page_does_not_refresh_credentials():
+    result = classify_api_error(_APIError(_OPENAI_EDGE_PAGE, 403), provider="openai-codex")
+    assert result.reason == FailoverReason.upstream_blocked
+    assert result.should_fallback is True and result.retryable is False
+    assert result.is_auth is False and result.should_rotate_credential is False
+
+
+@pytest.mark.parametrize("body,status", [
+    (_OPENAI_EDGE_PAGE, 401),
+    ("Unable to load site: token expired", 403),
+    ("<html><p>Unable to load site: permission denied</p></html>", 403),
+    ("Invalid authentication credentials", 403),
+])
+def test_codex_auth_errors_keep_auth_classification(body, status):
+    result = classify_api_error(_APIError(body, status), provider="openai-codex")
+    assert result.reason == FailoverReason.auth and result.is_auth is True

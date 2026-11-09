@@ -152,6 +152,11 @@ def _probe_openrouter() -> ProbeResult:
 def _probe_anthropic() -> ProbeResult:
     name = "Anthropic API"
     from hermes_cli.auth import get_anthropic_key
+    from hermes_cli.config import get_env_value_prefer_dotenv
+    configured_base = get_env_value_prefer_dotenv("ANTHROPIC_BASE_URL") or ""
+    # A custom endpoint owns its credential; a rejection by the public API says nothing about it.
+    if configured_base and urlsplit(configured_base).hostname != "api.anthropic.com":
+        return _row(name, "warn", "(custom Anthropic endpoint configured; direct API check skipped)")
     key = get_anthropic_key()
     if not key:
         return _skip(name)
