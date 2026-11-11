@@ -48,6 +48,10 @@ class SubagentWorktreeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="hermes-sw-test-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        # These Git fixtures launch no persistent child: do not enumerate the user's host processes.
+        self.live_processes = self.enterContext(mock.patch(
+            "hermes_cli.worktree_sweep.live_process_pids", return_value={},
+        ))
 
     # ── resolve_repo_root ──────────────────────────────────────────────
 
@@ -183,6 +187,18 @@ class SubagentWorktreeTests(unittest.TestCase):
         self.assertTrue(payload["inspection_failed"])
         self.assertIn(info["path"], payload["note"])
         self.assertIn(info["branch"], payload["note"])
+
+    def test_finalize_keeps_dirty_worktree_with_live_process(self):
+        repo = _make_repo(self.tmp)
+        info = sw.create_subagent_worktree(str(repo), "busy1")
+        assert info is not None
+        (Path(info["path"]) / "wip.txt").write_text("preserve me\n", encoding="utf-8")
+        self.live_processes.return_value = {info["path"]: [12345]}
+        payload = sw.finalize_subagent_worktree(info)
+        self.assertFalse(payload["pruned"])
+        self.assertNotIn("archive", payload)
+        self.assertTrue((Path(info["path"]) / "wip.txt").exists())
+        self.live_processes.assert_called_once_with([info["path"]], exclude=(os.getpid(),))
 
     def test_finalize_flags_unproven_state_distinguishably(self):
         """#88113 follow-up: a failed inspection must not look like "no work".
