@@ -1,6 +1,6 @@
 """Invariants of the snapshot-then-delete worktree sweep (``worktrees.archive_dirty``).
 
-Real git repos, real processes, no mocks: an idle dirty/unpushed tree past its tier is removed
+Real git repos and fixture-owned processes: an idle dirty/unpushed tree past its tier is removed
 only after a restorable archive exists (I1/I4); live, kanban and young trees are never touched
 (I2/I3); ``archive_dirty: false`` keeps the classic never-delete-dirty pruner (I6); the cron sweep
 visits the repos the ACTIVE profile registered (I7); a non-interactive exit never prompts (I5).
@@ -17,6 +17,18 @@ from pathlib import Path
 import pytest
 
 from hermes_cli import worktree_ops
+
+
+@pytest.fixture(autouse=True)
+def _fixture_process_census(monkeypatch):
+    """Keep real live/racing children, without walking unrelated Hermes processes on the host."""
+    import psutil
+
+    def owned_processes(attrs=None):
+        owner = psutil.Process()
+        return iter([owner, *owner.children(recursive=True)])
+
+    monkeypatch.setattr(psutil, "process_iter", owned_processes)
 
 
 def _git(args, cwd):
