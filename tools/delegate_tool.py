@@ -450,11 +450,13 @@ def _build_children(
     task_list: list[dict[str, Any]], task_schemas: list[Optional[dict[str, Any]]], routes: list[Any], *,
     top_role: str, max_iterations: int, parent_agent,
     live_deleg_id: Optional[str], live_writers: list, task_images: Optional[list[Optional[list[str]]]] = None,
+    task_agents: Optional[list[Any]] = None,
 ) -> tuple[list[tuple], Optional[str]]:
     """Build every child on the main thread (construction is not thread-safe), each on its task's route;
     ``(children, None)`` or ``([], error)`` on an explicit-pin preflight failure."""
     from tools.delegation_live_log import wrap_progress_callback
     from tools.delegation_output_schema import append_output_contract
+    from tools.delegate_tool_agents import append_agent_mandate
     children = []
     for i, t in enumerate(task_list):
         route = routes[i]
@@ -462,6 +464,8 @@ def _build_children(
             continue  # refused by its backend: no child; its result entry is the refusal
         _task_schema = task_schemas[i] if i < len(task_schemas) else None
         _child_context = t.get("context")
+        if task_agents is not None:
+            _child_context = append_agent_mandate(_child_context, task_agents[i])
         if _task_schema is not None:
             _child_context = append_output_contract(_child_context, _task_schema)
         try:
@@ -605,6 +609,9 @@ def delegate_task(
     if not err:
         task_images, err = _coerce_task_images(task_list, images)
     if not err:
+        from tools.delegate_tool_agents import resolve_task_agents
+        task_agents, err = resolve_task_agents(task_list, cfg, _parent_live_home(parent_agent))
+    if not err:
         # One route per task from the active delegation provider (delegation.backend), or from credentials_cfg
         # (internal callers only, e.g. /review → auxiliary.review: a per-call routing owner shaped like the
         # delegation section, kept together with its fallback policy through child construction). Explicit-pin
@@ -653,6 +660,7 @@ def delegate_task(
     children, err = _build_children(
         task_list, task_schemas, routes, top_role=top_role, max_iterations=default_max_iter, parent_agent=parent_agent,
         live_deleg_id=live_deleg_id, live_writers=live_writers, task_images=task_images,
+        task_agents=task_agents,
     )
     if err:
         return tool_error(err)
@@ -759,6 +767,11 @@ def _build_dynamic_schema_overrides() -> dict:
     # built-in default). Built from config with the rest of the definition, never per turn.
     from tools.delegate_tool_routes import schema_extension
     extra_params, addendum = schema_extension(_load_config())
+    if _load_config().get("agents_dir"):
+        extra_params = {**extra_params, "agent": _p(
+            "string", "Optional canonical TOML agent name from delegation.agents_dir. Selects instructions only; "
+            "routing, model and depth-derived capabilities are unchanged.",
+        )}
     if extra_params:
         tasks = overrides_params["properties"]["tasks"]
         tasks["items"] = {**tasks["items"], "properties": {**tasks["items"]["properties"], **extra_params}}

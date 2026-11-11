@@ -24,6 +24,46 @@ A configured backend that is not installed or reports unavailable **fails closed
 returns a tool error naming the backend and the fix, no child starts, and its schema parameters are
 absent. `/delegation` switches the backend (`agent.delegation_backends`, below).
 
+## Canonical task mandates (independent of routing)
+
+`delegation.agents_dir` opts the existing `delegate_task` into per-task semantic mandates.
+Set it with the existing CLI, pointing directly at an owner-controlled TOML library:
+
+```bash
+hermes config set delegation.agents_dir /absolute/path/to/agents
+```
+
+Start a new conversation to expose the optional `tasks[].agent` parameter. This does not
+rebuild an existing conversation's tools or prompt. A task may then select `"agent": "coder"`;
+core reads `coder.toml` from that directory. Without the setting, ordinary delegation is unchanged.
+A relative directory is anchored to the launching parent's profile home, not the child route's
+profile or an unrelated process-wide profile. There is no implicit project-directory discovery.
+
+```toml
+name = "coder"
+description = "Implement an already agreed change."
+developer_instructions = "Change only the requested files and verify the result."
+```
+
+`name` must match the filename, `developer_instructions` must be nonempty, and an optional
+`description` must be a string. Names are lowercase identifiers, not paths; file symlinks cannot
+escape the configured directory. These are trusted instructions for the new child: do not point
+this setting at an untrusted repository. Point both consumers at the same canonical files rather
+than maintaining a second copy. Core does not rewrite or translate their text.
+
+Selection reads only the mandate, never TOML `model`, provider, tool or sandbox settings. The
+backend still sees exactly the original goal/context/index and its own declared parameters;
+the mandate is added to the child's existing prompt-context channel only after routing. It
+neither grants tools nor changes the depth-derived leaf/orchestrator capability. Output schemas,
+images, background delivery and cancellation keep their existing lifecycle. Public lifecycle-API
+launches do not accept this selector; it belongs to `delegate_task` tasks.
+
+All selected files are validated and frozen before any route, transcript or child is created.
+An unknown/malformed mandate refuses the whole call (unlike a per-task backend route refusal).
+Omitting `agent` performs no mandate-file I/O, even if the directory setting is invalid. Managed
+worker sessions refuse selected files because their admitted session configuration is frozen;
+this feature does not extend a worker's read authority. No model turn is needed for validation.
+
 ## Skeleton
 
 ```python
@@ -93,7 +133,7 @@ is the default route, and `self.settings(config)` is your backend's own block,
 |---|---|---|
 | `name` | yes | The `delegation.backend` value. `default` belongs to the bundled default strategy. |
 | `route_task(task, config)` | yes | Return the route dict for one task. `task` carries `goal`, `context`, `index` and the values the model supplied for your parameters. Raise `DelegationRouteError` to refuse; its message is the tool error the model reads. |
-| `task_parameters(config)` | no | `{name: json_schema}` merged into `tasks.items.properties`. Core enforces `enum` before `route_task` runs and refuses core-owned names (`goal`, `context`, `index`, `output_schema`, `images`, `group`, `role`, `toolsets`, `provider`, `model`, `base_url`, `api_key`, `api_mode`, `acp_command`, `acp_args`). |
+| `task_parameters(config)` | no | `{name: json_schema}` merged into `tasks.items.properties`. Core enforces `enum` before `route_task` runs and refuses core-owned names (`goal`, `context`, `index`, `output_schema`, `images`, `group`, `role`, `toolsets`, `agent`, `provider`, `model`, `base_url`, `api_key`, `api_mode`, `acp_command`, `acp_args`). |
 | `description(config)` | no | Guidance appended to the `delegate_task` description. |
 | `is_available()` | no | No network calls. `False` fails delegation closed while your backend is selected: `delegate_task` returns a tool error naming it and the fix (`/delegation default`, or `hermes config set delegation.backend default`); it never switches to `default` on its own. |
 | `settings(config)` | inherited | `delegation.backends.<name>` as a mapping (empty when unset). Do not override. |
